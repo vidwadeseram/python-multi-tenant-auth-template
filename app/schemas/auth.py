@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.schemas.user import UserRead
 
@@ -8,6 +10,19 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?`~]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
 
 
 class LoginRequest(BaseModel):

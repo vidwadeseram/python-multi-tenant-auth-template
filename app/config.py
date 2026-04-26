@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     smtp_sender: str = Field(default="no-reply@example.com", alias="SMTP_SENDER")
     app_port: int = Field(default=8002, alias="APP_PORT")
     multi_tenant_mode: Literal["row", "schema"] = Field(default="row", alias="MULTI_TENANT_MODE")
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def jwt_secret_must_not_be_default(cls, v: str) -> str:
+        insecure_defaults = {"change-me-in-production", "changeme", "secret", "jwt_secret"}
+        if v.strip().lower() in insecure_defaults:
+            raise ValueError(
+                "JWT_SECRET must be changed from the default value. "
+                "Generate one with: python -c 'import secrets; print(secrets.token_hex(32))'"
+            )
+        return v
 
 
 @lru_cache
