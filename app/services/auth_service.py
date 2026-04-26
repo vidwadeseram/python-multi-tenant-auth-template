@@ -105,3 +105,32 @@ class AuthService:
         )
         if membership is None:
             raise AppError(403, "TENANT_ACCESS_DENIED", "User does not belong to this tenant.")
+
+    async def verify_email(self, token: str) -> None:
+        payload = self.token_service.decode_token(token, expected_type="verify")
+        user = await self.session.scalar(select(User).where(User.id == payload.subject))
+        if user is None:
+            raise AppError(404, "USER_NOT_FOUND", "User not found.")
+        if user.is_verified:
+            raise AppError(400, "ALREADY_VERIFIED", "Email is already verified.")
+        user.is_verified = True
+        await self.session.commit()
+
+    async def forgot_password(self, email: str) -> None:
+        user = await self.session.scalar(select(User).where(User.email == email.lower()))
+        if user is None:
+            return
+        reset_token = self.token_service.create_verification_token(str(user.id), user.email)
+        await send_email(
+            recipient=user.email,
+            subject="Password Reset",
+            body=f"Your password reset token is: {reset_token}",
+        )
+
+    async def reset_password(self, token: str, new_password: str) -> None:
+        payload = self.token_service.decode_token(token, expected_type="verify")
+        user = await self.session.scalar(select(User).where(User.id == payload.subject))
+        if user is None:
+            raise AppError(404, "USER_NOT_FOUND", "User not found.")
+        user.password_hash = hash_password(new_password)
+        await self.session.commit()
