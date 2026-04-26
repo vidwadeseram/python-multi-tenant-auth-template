@@ -1,9 +1,12 @@
 from datetime import UTC, datetime
 
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.refresh_token import RefreshToken
+from app.models.tenant_member import TenantMember
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenData
 from app.services.token_service import TokenService
@@ -40,14 +43,17 @@ class AuthService:
         )
         return user
 
-    async def login(self, payload: LoginRequest) -> TokenData:
+    async def login(self, payload: LoginRequest, tenant_id: UUID | None = None) -> TokenData:
         user = await self.session.scalar(select(User).where(User.email == payload.email.lower()))
         if not user or not verify_password(payload.password, user.password_hash):
             raise AppError(401, "INVALID_CREDENTIALS", "Invalid email or password.")
         if not user.is_active:
             raise AppError(403, "USER_INACTIVE", "User account is inactive.")
 
-        tokens = await self.token_service.issue_token_pair(self.session, user.id)
+        if tenant_id is not None:
+            await self._require_active_tenant_membership(user.id, tenant_id)
+
+        tokens = await self.token_service.issue_token_pair(self.session, user.id, tenant_id=tenant_id)
         await self.session.commit()
         return tokens
 
@@ -80,8 +86,22 @@ class AuthService:
         if token_record is None or token_record.expires_at <= datetime.now(UTC):
             raise AppError(401, "INVALID_REFRESH_TOKEN", "Refresh token is invalid or expired.")
 
+        if token_record.tenant_id is not None:
+            await self._require_active_tenant_membership(payload.subject, token_record.tenant_id)
+
         token_record.revoked_at = datetime.now(UTC)
         await self.session.flush()
-        tokens = await self.token_service.issue_token_pair(self.session, payload.subject)
+        tokens = await self.token_service.issue_token_pair(self.session, payload.subject, tenant_id=token_record.tenant_id)
         await self.session.commit()
         return tokens
+
+    async def _require_active_tenant_membership(self, user_id: UUID, tenant_id: UUID) -> None:
+        membership = await self.session.scalar(
+            select(TenantMember).where(
+                TenantMember.tenant_id == tenant_id,
+                TenantMember.user_id == user_id,
+                TenantMember.is_active.is_(True),
+            )
+        )
+        if membership is None:
+            raise AppError(403, "TENANT_ACCESS_DENIED", "User does not belong to this tenant.")

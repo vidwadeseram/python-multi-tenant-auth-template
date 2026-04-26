@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=1025, alias="SMTP_PORT")
     smtp_sender: str = Field(default="no-reply@example.com", alias="SMTP_SENDER")
     app_port: int = Field(default=8002, alias="APP_PORT")
+    multi_tenant_mode: Literal["row", "schema"] = Field(default="row", alias="MULTI_TENANT_MODE")
 
 
 @lru_cache

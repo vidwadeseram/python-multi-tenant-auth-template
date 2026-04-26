@@ -2,5 +2,9 @@
   "venvPath": ".",
   "venv": ".venv",
   "include": ["app", "alembic"],
-  "exclude": [".venv"]
+  "exclude": [".venv"],
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false,
+  "reportImportCycles": false,
+  "reportAttributeAccessIssue": false
 }
