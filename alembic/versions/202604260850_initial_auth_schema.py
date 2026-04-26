@@ -25,6 +25,7 @@ role_table = sa.table(
     sa.column("id", postgresql.UUID(as_uuid=True)),
     sa.column("name", sa.String(length=50)),
     sa.column("description", sa.String(length=255)),
+    sa.column("is_tenant_role", sa.Boolean()),
     sa.column("created_at", sa.DateTime(timezone=True)),
 )
 
@@ -49,6 +50,7 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("name", sa.String(length=50), nullable=False),
         sa.Column("description", sa.String(length=255), nullable=False),
+        sa.Column("is_tenant_role", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
     op.create_index(op.f("ix_roles_name"), "roles", ["name"], unique=True)
@@ -116,30 +118,35 @@ def upgrade() -> None:
                 "id": uuid.UUID("11111111-1111-1111-1111-111111111111"),
                 "name": "super_admin",
                 "description": "Super administrator",
+                "is_tenant_role": False,
                 "created_at": datetime.now(UTC),
             },
             {
                 "id": uuid.UUID("22222222-2222-2222-2222-222222222222"),
                 "name": "admin",
                 "description": "Administrator",
+                "is_tenant_role": False,
                 "created_at": datetime.now(UTC),
             },
             {
                 "id": uuid.UUID("33333333-3333-3333-3333-333333333333"),
                 "name": "user",
                 "description": "Standard user",
+                "is_tenant_role": False,
                 "created_at": datetime.now(UTC),
             },
             {
                 "id": uuid.UUID("44444444-4444-4444-4444-444444444444"),
                 "name": "tenant_admin",
                 "description": "Tenant administrator",
+                "is_tenant_role": True,
                 "created_at": datetime.now(UTC),
             },
             {
                 "id": uuid.UUID("55555555-5555-5555-5555-555555555555"),
                 "name": "tenant_member",
                 "description": "Tenant member",
+                "is_tenant_role": True,
                 "created_at": datetime.now(UTC),
             },
         ],

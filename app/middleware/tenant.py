@@ -1,6 +1,7 @@
+# pyright: reportUnknownVariableType=false
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from fastapi import Request
@@ -23,7 +24,7 @@ def _parse_tenant_id(value: str | None) -> UUID | None:
         raise AppError(400, "INVALID_TENANT_ID", "Tenant ID is invalid.") from exc
 
 
-async def tenant_context_middleware(request: Request, call_next: Callable[[Request], Response]) -> Response:
+async def tenant_context_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     request.state.tenant = None
     request.state.tenant_id = None
     request.state.tenant_member = None
@@ -51,6 +52,8 @@ async def tenant_context_middleware(request: Request, call_next: Callable[[Reque
         return await call_next(request)
 
     if user_id is None:
+        if request.url.path == "/api/v1/auth/login":
+            return await call_next(request)
         return build_error_response(401, "AUTHENTICATION_REQUIRED", "Authentication credentials were not provided.")
 
     async with AsyncSessionLocal() as session:

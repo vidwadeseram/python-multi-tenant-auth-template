@@ -1,11 +1,16 @@
+# pyright: reportUnannotatedClassAttribute=false, reportUnusedCallResult=false
 from datetime import UTC, datetime
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.email_verification_token import EmailVerificationToken
+from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
+from app.models.rbac import UserRole
+from app.models.role import Role
 from app.models.tenant_member import TenantMember
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenData
@@ -32,10 +37,16 @@ class AuthService:
             last_name=payload.last_name.strip(),
         )
         self.session.add(user)
+        await self.session.flush()
+
+        default_role = await self.session.scalar(select(Role).where(Role.name == "user"))
+        if default_role is None:
+            raise AppError(500, "ROLE_NOT_FOUND", "Default user role has not been seeded.")
+        self.session.add(UserRole(user_id=user.id, role_id=default_role.id, tenant_id=None))
+
+        verification_token = await self._issue_email_verification_token(user.id)
         await self.session.commit()
         await self.session.refresh(user)
-
-        verification_token = self.token_service.create_verification_token(str(user.id), user.email)
         await send_email(
             recipient=user.email,
             subject="Verify your account",
@@ -105,3 +116,86 @@ class AuthService:
         )
         if membership is None:
             raise AppError(403, "TENANT_ACCESS_DENIED", "User does not belong to this tenant.")
+
+    async def verify_email(self, token: str) -> None:
+        token_record = await self._get_valid_email_verification_token(token)
+        user = await self.session.scalar(select(User).where(User.id == token_record.user_id))
+        if user is None:
+            raise AppError(404, "USER_NOT_FOUND", "User not found.")
+        if user.is_verified:
+            raise AppError(400, "ALREADY_VERIFIED", "Email is already verified.")
+        user.is_verified = True
+        token_record.used_at = datetime.now(UTC)
+        await self.session.commit()
+
+    async def forgot_password(self, email: str) -> None:
+        user = await self.session.scalar(select(User).where(User.email == email.lower()))
+        if user is None:
+            return
+        reset_token = await self._issue_password_reset_token(user.id)
+        await self.session.commit()
+        await send_email(
+            recipient=user.email,
+            subject="Password Reset",
+            body=f"Your password reset token is: {reset_token}",
+        )
+
+    async def reset_password(self, token: str, new_password: str) -> None:
+        token_record = await self._get_valid_password_reset_token(token)
+        user = await self.session.scalar(select(User).where(User.id == token_record.user_id))
+        if user is None:
+            raise AppError(404, "USER_NOT_FOUND", "User not found.")
+        user.password_hash = hash_password(new_password)
+        token_record.used_at = datetime.now(UTC)
+        await self.session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
+        )
+        await self.session.commit()
+
+    async def _issue_email_verification_token(self, user_id: UUID) -> str:
+        token = self.token_service.create_one_time_token()
+        self.session.add(
+            EmailVerificationToken(
+                user_id=user_id,
+                token_hash=self.token_service.hash_token(token),
+                expires_at=datetime.now(UTC) + self.token_service.verification_token_lifetime,
+            )
+        )
+        await self.session.flush()
+        return token
+
+    async def _issue_password_reset_token(self, user_id: UUID) -> str:
+        token = self.token_service.create_one_time_token()
+        self.session.add(
+            PasswordResetToken(
+                user_id=user_id,
+                token_hash=self.token_service.hash_token(token),
+                expires_at=datetime.now(UTC) + self.token_service.password_reset_token_lifetime,
+            )
+        )
+        await self.session.flush()
+        return token
+
+    async def _get_valid_email_verification_token(self, token: str) -> EmailVerificationToken:
+        token_record = await self.session.scalar(
+            select(EmailVerificationToken).where(
+                EmailVerificationToken.token_hash == self.token_service.hash_token(token),
+                EmailVerificationToken.used_at.is_(None),
+            )
+        )
+        if token_record is None or token_record.expires_at <= datetime.now(UTC):
+            raise AppError(400, "INVALID_VERIFICATION_TOKEN", "Verification token is invalid or expired.")
+        return token_record
+
+    async def _get_valid_password_reset_token(self, token: str) -> PasswordResetToken:
+        token_record = await self.session.scalar(
+            select(PasswordResetToken).where(
+                PasswordResetToken.token_hash == self.token_service.hash_token(token),
+                PasswordResetToken.used_at.is_(None),
+            )
+        )
+        if token_record is None or token_record.expires_at <= datetime.now(UTC):
+            raise AppError(400, "INVALID_PASSWORD_RESET_TOKEN", "Password reset token is invalid or expired.")
+        return token_record
