@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from app.middleware.ratelimit import RateLimitMiddleware
 from app.middleware.tenant import tenant_context_middleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
@@ -25,6 +26,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Python Multi-Tenant Auth Template", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RateLimitMiddleware, rate=1 / 60, burst=5, prefix="/api/v1/auth")
 register_exception_handlers(app)
 app.middleware("http")(tenant_context_middleware)
 app.include_router(health_router)
