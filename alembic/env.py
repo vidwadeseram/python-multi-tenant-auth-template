@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
 from app.database import Base
-from app.models import refresh_token, role, tenant, tenant_invitation, tenant_member, user  # noqa: F401
+from app.models import email_verification_token, password_reset_token, refresh_token, role, tenant, tenant_invitation, tenant_member, user  # noqa: F401
 
 
 config = context.config

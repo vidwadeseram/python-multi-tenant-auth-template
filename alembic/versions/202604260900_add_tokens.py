@@ -26,6 +26,7 @@ def upgrade() -> None:
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()"), nullable=False),
     )
+    op.create_index(op.f("ix_password_reset_tokens_token_hash"), "password_reset_tokens", ["token_hash"], unique=True)
     op.create_table(
         "email_verification_tokens",
         sa.Column("id", sa.UUID(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -35,8 +36,11 @@ def upgrade() -> None:
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()"), nullable=False),
     )
+    op.create_index(op.f("ix_email_verification_tokens_token_hash"), "email_verification_tokens", ["token_hash"], unique=True)
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_email_verification_tokens_token_hash"), table_name="email_verification_tokens")
     op.drop_table("email_verification_tokens")
+    op.drop_index(op.f("ix_password_reset_tokens_token_hash"), table_name="password_reset_tokens")
     op.drop_table("password_reset_tokens")
