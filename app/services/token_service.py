@@ -39,13 +39,21 @@ class TokenService:
         token = jwt.encode(payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm)
         return token, expires_at
 
-    def create_verification_token(self, user_id: str, email: str) -> str:
-        expires_at = datetime.now(UTC) + timedelta(hours=24)
-        return jwt.encode(
-            {"sub": user_id, "email": email, "type": "verify", "exp": expires_at},
+    def _create_typed_token(self, user_id: str, email: str, token_type: str, expires_at: datetime) -> tuple[str, datetime]:
+        token = jwt.encode(
+            {"sub": user_id, "email": email, "type": token_type, "exp": expires_at},
             self.settings.jwt_secret,
             algorithm=self.settings.jwt_algorithm,
         )
+        return token, expires_at
+
+    def create_verification_token(self, user_id: str, email: str) -> tuple[str, datetime]:
+        expires_at = datetime.now(UTC) + timedelta(hours=24)
+        return self._create_typed_token(user_id, email, "verify", expires_at)
+
+    def create_password_reset_token(self, user_id: str, email: str) -> tuple[str, datetime]:
+        expires_at = datetime.now(UTC) + timedelta(hours=1)
+        return self._create_typed_token(user_id, email, "reset", expires_at)
 
     async def issue_token_pair(self, session: AsyncSession, user_id: UUID, tenant_id: UUID | None = None) -> TokenData:
         access_token, _ = self.create_access_token(str(user_id), tenant_id=tenant_id)

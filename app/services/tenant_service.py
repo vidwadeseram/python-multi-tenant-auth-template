@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 import subprocess
@@ -14,6 +15,7 @@ from app.models.role import Role
 from app.models.tenant import Tenant
 from app.models.tenant_invitation import TenantInvitation
 from app.models.tenant_member import TenantMember
+from app.models.user import User
 from app.utils.errors import AppError
 
 
@@ -33,7 +35,8 @@ class TenantSchemaService:
 
     async def run_migrations_for_schema(self, tenant_id: UUID) -> str:
         schema_name = self.build_schema_name(tenant_id)
-        subprocess.run(
+        await asyncio.to_thread(
+            subprocess.run,
             ["alembic", "-x", f"tenant_schema={schema_name}", "upgrade", "head"],
             check=True,
             cwd=Path(__file__).resolve().parents[2],
@@ -155,6 +158,9 @@ class TenantService:
             raise AppError(404, "INVITATION_NOT_FOUND", "Invitation not found or already accepted.")
         if invitation.expires_at < datetime.now(timezone.utc):
             raise AppError(400, "INVITATION_EXPIRED", "Invitation has expired.")
+        user = await self.session.scalar(select(User).where(User.id == user_id))
+        if user is None or user.email.lower() != invitation.email.lower():
+            raise AppError(403, "INVITATION_EMAIL_MISMATCH", "Invitation email does not match the authenticated user.")
         invitation.accepted_at = datetime.now(timezone.utc)
         existing = await self.get_membership(invitation.tenant_id, user_id)
         if existing:
