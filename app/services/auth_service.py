@@ -9,16 +9,19 @@ from app.models.refresh_token import RefreshToken
 from app.models.tenant_member import TenantMember
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenData
+from app.services.email_verification_service import EmailVerificationService
+from app.services.password_reset_service import PasswordResetService
 from app.services.token_service import TokenService
-from app.utils.email import send_email
 from app.utils.errors import AppError
 from app.utils.security import hash_password, verify_password
 
 
 class AuthService:
     def __init__(self, session: AsyncSession):
-        self.session = session
-        self.token_service = TokenService()
+        self.session: AsyncSession = session
+        self.token_service: TokenService = TokenService()
+        self.email_verification_service: EmailVerificationService = EmailVerificationService(session, self.token_service)
+        self.password_reset_service: PasswordResetService = PasswordResetService(session, self.token_service)
 
     async def register(self, payload: RegisterRequest) -> User:
         existing = await self.session.scalar(select(User).where(User.email == payload.email.lower()))
@@ -32,15 +35,10 @@ class AuthService:
             last_name=payload.last_name.strip(),
         )
         self.session.add(user)
+        await self.session.flush()
+        await self.email_verification_service.issue_token(user)
         await self.session.commit()
         await self.session.refresh(user)
-
-        verification_token = self.token_service.create_verification_token(str(user.id), user.email)
-        await send_email(
-            recipient=user.email,
-            subject="Verify your account",
-            body=f"Welcome {user.first_name}, your verification token is: {verification_token}",
-        )
         return user
 
     async def login(self, payload: LoginRequest, tenant_id: UUID | None = None) -> TokenData:
@@ -107,8 +105,8 @@ class AuthService:
             raise AppError(403, "TENANT_ACCESS_DENIED", "User does not belong to this tenant.")
 
     async def verify_email(self, token: str) -> None:
-        payload = self.token_service.decode_token(token, expected_type="verify")
-        user = await self.session.scalar(select(User).where(User.id == payload.subject))
+        user_id = await self.email_verification_service.verify_token(token)
+        user = await self.session.scalar(select(User).where(User.id == user_id))
         if user is None:
             raise AppError(404, "USER_NOT_FOUND", "User not found.")
         if user.is_verified:
@@ -120,17 +118,10 @@ class AuthService:
         user = await self.session.scalar(select(User).where(User.email == email.lower()))
         if user is None:
             return
-        reset_token = self.token_service.create_verification_token(str(user.id), user.email)
-        await send_email(
-            recipient=user.email,
-            subject="Password Reset",
-            body=f"Your password reset token is: {reset_token}",
-        )
+        await self.password_reset_service.issue_token(user)
+        await self.session.commit()
 
     async def reset_password(self, token: str, new_password: str) -> None:
-        payload = self.token_service.decode_token(token, expected_type="verify")
-        user = await self.session.scalar(select(User).where(User.id == payload.subject))
-        if user is None:
-            raise AppError(404, "USER_NOT_FOUND", "User not found.")
+        user = await self.password_reset_service.consume_token(token)
         user.password_hash = hash_password(new_password)
         await self.session.commit()
