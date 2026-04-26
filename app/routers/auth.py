@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db_session
@@ -7,6 +9,7 @@ from app.models.user import User
 from app.schemas.auth import AuthUserResponse, LoginRequest, LogoutRequest, MessageResponse, RefreshTokenRequest, RegisterRequest, TokenResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
+from app.utils.errors import AppError
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -19,8 +22,16 @@ async def register(payload: RegisterRequest, session: AsyncSession = Depends(get
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, session: AsyncSession = Depends(get_db_session)):
-    tokens = await AuthService(session).login(payload)
+async def login(payload: LoginRequest, request: Request, session: AsyncSession = Depends(get_db_session)):
+    tenant_header = request.headers.get("X-Tenant-ID")
+    tenant_id: UUID | None = None
+    if tenant_header:
+        try:
+            tenant_id = UUID(tenant_header)
+        except ValueError as exc:
+            raise AppError(400, "INVALID_TENANT_ID", "Tenant ID is invalid.") from exc
+
+    tokens = await AuthService(session).login(payload, tenant_id=tenant_id)
     return {"data": tokens.model_dump()}
 
 

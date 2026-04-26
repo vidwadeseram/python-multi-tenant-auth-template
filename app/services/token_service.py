@@ -16,24 +16,27 @@ from app.utils.errors import AppError
 class TokenPayload:
     subject: UUID
     token_type: str
+    tenant_id: UUID | None = None
 
 
 class TokenService:
     def __init__(self):
         self.settings = get_settings()
 
-    def create_access_token(self, user_id: str) -> tuple[str, datetime]:
+    def create_access_token(self, user_id: str, tenant_id: UUID | None = None) -> tuple[str, datetime]:
         expires_at = datetime.now(UTC) + timedelta(minutes=self.settings.jwt_access_expire_minutes)
-        token = jwt.encode({"sub": user_id, "exp": expires_at}, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm)
+        payload = {"sub": user_id, "type": "access", "exp": expires_at}
+        if tenant_id is not None:
+            payload["tenant_id"] = str(tenant_id)
+        token = jwt.encode(payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm)
         return token, expires_at
 
-    def create_refresh_token(self, user_id: str) -> tuple[str, datetime]:
+    def create_refresh_token(self, user_id: str, tenant_id: UUID | None = None) -> tuple[str, datetime]:
         expires_at = datetime.now(UTC) + timedelta(days=self.settings.jwt_refresh_expire_days)
-        token = jwt.encode(
-            {"sub": user_id, "type": "refresh", "exp": expires_at},
-            self.settings.jwt_secret,
-            algorithm=self.settings.jwt_algorithm,
-        )
+        payload = {"sub": user_id, "type": "refresh", "exp": expires_at}
+        if tenant_id is not None:
+            payload["tenant_id"] = str(tenant_id)
+        token = jwt.encode(payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm)
         return token, expires_at
 
     def create_verification_token(self, user_id: str, email: str) -> str:
@@ -44,12 +47,13 @@ class TokenService:
             algorithm=self.settings.jwt_algorithm,
         )
 
-    async def issue_token_pair(self, session: AsyncSession, user_id: UUID) -> TokenData:
-        access_token, _ = self.create_access_token(str(user_id))
-        refresh_token, refresh_expires_at = self.create_refresh_token(str(user_id))
+    async def issue_token_pair(self, session: AsyncSession, user_id: UUID, tenant_id: UUID | None = None) -> TokenData:
+        access_token, _ = self.create_access_token(str(user_id), tenant_id=tenant_id)
+        refresh_token, refresh_expires_at = self.create_refresh_token(str(user_id), tenant_id=tenant_id)
         session.add(
             RefreshToken(
                 user_id=user_id,
+                tenant_id=tenant_id,
                 token_hash=self.hash_token(refresh_token),
                 expires_at=refresh_expires_at,
             )
@@ -78,7 +82,13 @@ class TokenService:
         if subject is None:
             raise AppError(401, "INVALID_TOKEN", "Token subject is missing.")
 
-        return TokenPayload(subject=UUID(subject), token_type=token_type)
+        tenant_id = payload.get("tenant_id")
+
+        return TokenPayload(
+            subject=UUID(subject),
+            token_type=token_type,
+            tenant_id=UUID(tenant_id) if tenant_id else None,
+        )
 
     def hash_token(self, token: str) -> str:
         return sha256(token.encode("utf-8")).hexdigest()
