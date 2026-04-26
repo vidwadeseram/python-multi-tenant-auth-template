@@ -1,0 +1,32 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env.example
+    ports:
+      - "8002:8000"
+    depends_on:
+      - db
+      - mailhog
+    command: >
+      sh -c "./scripts/wait-for-db.sh db 5432 && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    expose:
+      - "1025"
+      - "8025"
+
+volumes:
+  postgres_data:
