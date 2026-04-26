@@ -7,6 +7,7 @@ from app.middleware.tenant import tenant_context_middleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
+from app.routers.tenant import router as tenant_router
 from app.utils.errors import register_exception_handlers
 
 
@@ -29,3 +30,4 @@ app.middleware("http")(tenant_context_middleware)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(tenant_router)
