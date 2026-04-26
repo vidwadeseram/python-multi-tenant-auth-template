@@ -1,6 +1,8 @@
+# pyright: reportUnannotatedClassAttribute=false, reportUnknownMemberType=false, reportAny=false
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+import secrets
 from uuid import UUID
 
 import jwt
@@ -22,6 +24,8 @@ class TokenPayload:
 class TokenService:
     def __init__(self):
         self.settings = get_settings()
+        self.verification_token_lifetime = timedelta(hours=24)
+        self.password_reset_token_lifetime = timedelta(hours=2)
 
     def create_access_token(self, user_id: str, tenant_id: UUID | None = None) -> tuple[str, datetime]:
         expires_at = datetime.now(UTC) + timedelta(minutes=self.settings.jwt_access_expire_minutes)
@@ -39,13 +43,8 @@ class TokenService:
         token = jwt.encode(payload, self.settings.jwt_secret, algorithm=self.settings.jwt_algorithm)
         return token, expires_at
 
-    def create_verification_token(self, user_id: str, email: str) -> str:
-        expires_at = datetime.now(UTC) + timedelta(hours=24)
-        return jwt.encode(
-            {"sub": user_id, "email": email, "type": "verify", "exp": expires_at},
-            self.settings.jwt_secret,
-            algorithm=self.settings.jwt_algorithm,
-        )
+    def create_one_time_token(self) -> str:
+        return secrets.token_urlsafe(32)
 
     async def issue_token_pair(self, session: AsyncSession, user_id: UUID, tenant_id: UUID | None = None) -> TokenData:
         access_token, _ = self.create_access_token(str(user_id), tenant_id=tenant_id)

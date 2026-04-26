@@ -1,8 +1,8 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str
+    token: str = Field(min_length=1)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -10,5 +10,5 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
