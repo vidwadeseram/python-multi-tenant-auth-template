@@ -19,6 +19,7 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdateRequest,
 )
+from app.services.audit_service import AuditLogger
 from app.services.tenant_service import TenantService
 from app.utils.errors import AppError
 
@@ -45,6 +46,12 @@ async def create_tenant(
 ):
     svc = TenantService(session)
     tenant = await svc.create_tenant(payload.name, payload.slug, current_user.id)
+    await AuditLogger(session).log(
+        action="tenant.created",
+        tenant_id=tenant.id,
+        user_id=current_user.id,
+        details={"name": tenant.name, "slug": tenant.slug},
+    )
     return {"data": tenant}
 
 
@@ -84,6 +91,12 @@ async def update_tenant(
     await require_tenant_admin(tenant_id, current_user, session)
     svc = TenantService(session)
     tenant = await svc.update_tenant(tenant_id, name=payload.name, is_active=payload.is_active)
+    await AuditLogger(session).log(
+        action="tenant.updated",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        details={"name": payload.name, "is_active": payload.is_active},
+    )
     return {"data": tenant}
 
 
@@ -96,6 +109,11 @@ async def delete_tenant(
     await require_tenant_admin(tenant_id, current_user, session)
     svc = TenantService(session)
     await svc.delete_tenant(tenant_id)
+    await AuditLogger(session).log(
+        action="tenant.deleted",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+    )
     return {"data": {"message": "Tenant deactivated."}}
 
 
@@ -136,6 +154,12 @@ async def invite_member(
     await require_tenant_admin(tenant_id, current_user, session)
     svc = TenantService(session)
     invitation = await svc.invite_member(tenant_id, payload.email, payload.role_id)
+    await AuditLogger(session).log(
+        action="tenant.invitation.created",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        details={"email": payload.email, "role_id": str(payload.role_id)},
+    )
     return {
         "data": {
             "id": str(invitation.id),
@@ -157,6 +181,12 @@ async def accept_invitation(
 ):
     svc = TenantService(session)
     member = await svc.accept_invitation(payload.token, current_user.id)
+    await AuditLogger(session).log(
+        action="tenant.invitation.accepted",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        details={"member_id": str(member.id)},
+    )
     return {"data": {"message": "Invitation accepted.", "member_id": str(member.id)}}
 
 
@@ -171,6 +201,12 @@ async def update_member_role(
     await require_tenant_admin(tenant_id, current_user, session)
     svc = TenantService(session)
     member = await svc.update_member_role(tenant_id, user_id, payload.role_id)
+    await AuditLogger(session).log(
+        action="tenant.member.role_changed",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        details={"target_user_id": str(user_id), "new_role_id": str(payload.role_id)},
+    )
     return {"data": {"message": "Member role updated.", "member_id": str(member.id)}}
 
 
@@ -184,4 +220,10 @@ async def remove_member(
     await require_tenant_admin(tenant_id, current_user, session)
     svc = TenantService(session)
     await svc.remove_member(tenant_id, user_id)
+    await AuditLogger(session).log(
+        action="tenant.member.removed",
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        details={"removed_user_id": str(user_id)},
+    )
     return {"data": {"message": "Member removed from tenant."}}
